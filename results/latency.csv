@@ -1,0 +1,10 @@
+query,table,qps,duration_sec,requests,errors,dropped,p50_ms,p95_ms,p99_ms,max_ms,mean_ms,broker_time_p50_ms,docs_scanned_median,total_docs,entries_in_filter_median,entries_post_filter_median
+q1_rollup_region_status,deliveries_noidx,20,30,600,0,0,16.738,26.181,40.449,79.900,18.125,15,5000000,5000000,0,20000000
+q1_rollup_region_status,deliveries_inverted,20,30,600,0,0,16.171,25.857,46.920,63.365,17.542,15,5000000,5000000,0,20000000
+q1_rollup_region_status,deliveries_startree,20,30,600,0,0,7.164,12.713,17.092,45.315,7.721,5,1968,5000000,0,9840
+q2_failing_tenants,deliveries_noidx,20,30,600,0,0,12.360,17.396,49.720,145.449,14.040,11,66227,5000000,5433911,132454
+q2_failing_tenants,deliveries_inverted,20,30,600,0,0,7.616,11.816,14.087,33.242,7.920,6,66227,5000000,0,132454
+q2_failing_tenants,deliveries_startree,20,30,600,0,0,7.617,12.796,17.136,40.061,7.965,6,3883,5000000,0,11649
+q3_endpoint_lookup,deliveries_noidx,20,30,600,0,0,6.542,11.599,41.047,140.875,7.941,5,19920,5000000,1410263,19920
+q3_endpoint_lookup,deliveries_inverted,20,30,600,0,0,6.395,11.405,18.100,122.985,7.007,4,19920,5000000,0,19920
+q3_endpoint_lookup,deliveries_startree,20,30,600,0,0,6.734,10.259,12.786,83.238,6.925,5,19920,5000000,1410263,19920
