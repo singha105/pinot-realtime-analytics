@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end benchmark on a fresh stack (run `make demo`, which resets the containers first):
 #   create topic + tables -> stream ROWS events -> wait until every table has them -> seal segments
-#   -> query load on each table -> produce-to-queryable probes -> results/RESULTS.md + README table.
+#   -> query load on each table -> rollup capacity sweep -> produce-to-queryable probes
+#   -> results/RESULTS.md, copied into the README between the results markers.
 # Every number in the README results section is written by this script.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -12,6 +13,8 @@ PARTITIONS="${PARTITIONS:-4}"
 QPS="${QPS:-20}"
 DURATION="${DURATION:-30}"
 WARMUP="${WARMUP:-5}"
+SWEEP_QPS="${SWEEP_QPS:-50,100,200}"
+SWEEP_DURATION="${SWEEP_DURATION:-20}"
 PROBES="${PROBES:-20}"
 JAR=target/pinot-rt.jar
 OUT=results
@@ -43,6 +46,12 @@ echo "== query load: $QPS QPS, ${DURATION}s per query and table"
 run loadgen --qps "$QPS" --duration-sec "$DURATION" --warmup-sec "$WARMUP" \
   --csv "$OUT/latency.csv" --markdown "$OUT/latency.md"
 
+echo "== capacity sweep: rollup query on the scan and star-tree tables at $SWEEP_QPS QPS"
+# The scan table is expected to saturate here, so drops and timeouts are reported, not fatal.
+run loadgen --only q1_rollup_region_status --tables deliveries_noidx,deliveries_startree \
+  --qps "$SWEEP_QPS" --duration-sec "$SWEEP_DURATION" --warmup-sec "$WARMUP" --fail-on-errors false \
+  --csv "$OUT/sweep.csv" --markdown "$OUT/sweep.md"
+
 echo "== produce-to-queryable probes"
 run freshness --probes "$PROBES" --markdown "$OUT/freshness.md"
 
@@ -72,6 +81,9 @@ images=$(docker compose config --images | sort | paste -sd ',' - | sed 's/,/, /g
   echo "### Query latency by index"
   echo
   cat "$OUT/latency.md"
+  echo "### Capacity: rollup query as offered load rises"
+  echo
+  cat "$OUT/sweep.md"
   echo "### Freshness"
   echo
   cat "$OUT/freshness.md"

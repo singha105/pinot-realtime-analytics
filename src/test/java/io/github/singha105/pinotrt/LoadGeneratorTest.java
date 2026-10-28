@@ -56,7 +56,7 @@ class LoadGeneratorTest {
                 new long[] {2_000_000, 4_000_000, 9_000_000, 0},
                 new PinotClient.QueryResult[] {ok, ok, failed, null},
                 1);
-        LoadGenerator.Run run = LoadGenerator.toRun("q", "t", samples);
+        LoadGenerator.Run run = LoadGenerator.toRun("q", "t", 20, samples);
         assertEquals(4, run.requests());
         assertEquals(1, run.errors());
         assertEquals(1, run.dropped());

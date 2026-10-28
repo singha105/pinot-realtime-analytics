@@ -30,6 +30,7 @@ final class LoadGenerator {
     record Run(
             String queryId,
             String table,
+            double qps,
             int requests,
             int errors,
             int dropped,
@@ -45,18 +46,24 @@ final class LoadGenerator {
 
     static int run(String[] argv) throws Exception {
         Args args = Args.parse(argv, Args.keys(
-                "broker", "tables", "queries", "qps", "duration-sec", "warmup-sec", "max-in-flight",
-                "timeout-ms", "csv", "markdown"));
+                "broker", "tables", "queries", "only", "qps", "duration-sec", "warmup-sec", "max-in-flight",
+                "timeout-ms", "csv", "markdown", "fail-on-errors"));
         String broker = args.str("broker", "http://localhost:18000");
         List<String> tables = args.list("tables", "deliveries_noidx,deliveries_inverted,deliveries_startree");
         Path queryDir = Path.of(args.str("queries", "queries"));
-        double qps = args.dbl("qps", 20);
+        List<Double> qpsLevels = args.list("qps", "20").stream().map(Double::parseDouble).toList();
+        List<String> only = args.list("only", "");
         int durationSec = args.integer("duration-sec", 30);
         int warmupSec = args.integer("warmup-sec", 5);
         int maxInFlight = args.integer("max-in-flight", 64);
         Duration timeout = Duration.ofMillis(args.integer("timeout-ms", 10_000));
 
-        List<Query> queries = loadQueries(queryDir);
+        List<Query> queries = loadQueries(queryDir).stream()
+                .filter(q -> only.isEmpty() || only.contains(q.id()))
+                .toList();
+        if (queries.isEmpty()) {
+            throw new IllegalArgumentException("no queries match --only " + only);
+        }
         PinotClient client = new PinotClient(broker, timeout);
 
         Map<String, Boolean> sameAnswer = new LinkedHashMap<>();
@@ -66,26 +73,32 @@ final class LoadGenerator {
 
         List<Run> runs = new ArrayList<>();
         for (Query q : queries) {
-            for (String table : tables) {
-                String sql = q.sqlFor(table);
-                System.out.printf("%s on %s: warmup %ds, then %ds at %.0f QPS%n", q.id(), table, warmupSec, durationSec, qps);
-                drive(client, sql, qps, warmupSec, maxInFlight);
-                Run run = toRun(q.id(), table, drive(client, sql, qps, durationSec, maxInFlight));
-                System.out.printf("  p50 %.2f ms  p95 %.2f ms  p99 %.2f ms  errors %d  dropped %d%n",
-                        run.client().p50Ms(), run.client().p95Ms(), run.client().p99Ms(), run.errors(), run.dropped());
-                runs.add(run);
+            for (double qps : qpsLevels) {
+                for (String table : tables) {
+                    String sql = q.sqlFor(table);
+                    System.out.printf("%s on %s: warmup %ds, then %ds at %.0f QPS%n",
+                            q.id(), table, warmupSec, durationSec, qps);
+                    drive(client, sql, qps, warmupSec, maxInFlight);
+                    Run run = toRun(q.id(), table, qps, drive(client, sql, qps, durationSec, maxInFlight));
+                    System.out.printf("  p50 %.2f ms  p95 %.2f ms  p99 %.2f ms  errors %d  dropped %d%n",
+                            run.client().p50Ms(), run.client().p95Ms(), run.client().p99Ms(),
+                            run.errors(), run.dropped());
+                    runs.add(run);
+                }
             }
         }
 
         if (args.str("csv", null) != null) {
-            writeCsv(Path.of(args.str("csv", null)), runs, qps, durationSec);
+            writeCsv(Path.of(args.str("csv", null)), runs, durationSec);
         }
         if (args.str("markdown", null) != null) {
-            writeMarkdown(Path.of(args.str("markdown", null)), queries, runs, sameAnswer, qps, durationSec);
+            writeMarkdown(Path.of(args.str("markdown", null)), queries, runs, sameAnswer, qpsLevels, durationSec);
         }
         boolean allMatch = !sameAnswer.containsValue(false);
         boolean clean = runs.stream().allMatch(r -> r.errors() == 0 && r.dropped() == 0);
-        return allMatch && clean ? 0 : 1;
+        // Overload sweeps expect drops and timeouts; they still fail if an index changes an answer.
+        boolean failOnErrors = Boolean.parseBoolean(args.str("fail-on-errors", "true"));
+        return allMatch && (clean || !failOnErrors) ? 0 : 1;
     }
 
     /** Reads {@code *.sql} files in name order; leading {@code --} lines become the description. */
@@ -175,7 +188,7 @@ final class LoadGenerator {
         return new Samples(latency, results, dropped);
     }
 
-    static Run toRun(String queryId, String table, Samples s) {
+    static Run toRun(String queryId, String table, double qps, Samples s) {
         List<Long> okLatency = new ArrayList<>();
         List<Long> brokerMs = new ArrayList<>();
         List<Long> docs = new ArrayList<>();
@@ -206,7 +219,7 @@ final class LoadGenerator {
         if (okLatency.isEmpty()) {
             throw new IllegalStateException(queryId + " on " + table + ": every request failed: " + firstError);
         }
-        return new Run(queryId, table, s.results().length, errors, s.dropped(),
+        return new Run(queryId, table, qps, s.results().length, errors, s.dropped(),
                 LatencyStats.summarize(toArray(okLatency)),
                 LatencyStats.median(toArray(brokerMs)),
                 LatencyStats.median(toArray(docs)),
@@ -220,7 +233,7 @@ final class LoadGenerator {
         return values.stream().mapToLong(Long::longValue).toArray();
     }
 
-    static void writeCsv(Path path, List<Run> runs, double qps, int durationSec) throws IOException {
+    static void writeCsv(Path path, List<Run> runs, int durationSec) throws IOException {
         createParent(path);
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(path))) {
             out.println("query,table,qps,duration_sec,requests,errors,dropped,p50_ms,p95_ms,p99_ms,max_ms,mean_ms,"
@@ -228,7 +241,7 @@ final class LoadGenerator {
             for (Run r : runs) {
                 LatencyStats.Summary c = r.client();
                 out.println(String.format(Locale.ROOT, "%s,%s,%.0f,%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%d,%d,%d,%d,%d",
-                        r.queryId(), r.table(), qps, durationSec, r.requests(), r.errors(), r.dropped(),
+                        r.queryId(), r.table(), r.qps(), durationSec, r.requests(), r.errors(), r.dropped(),
                         c.p50Ms(), c.p95Ms(), c.p99Ms(), c.maxMs(), c.meanMs(),
                         r.brokerTimeP50Ms(), r.docsScannedMedian(), r.totalDocs(),
                         r.entriesInFilterMedian(), r.entriesPostFilterMedian()));
@@ -237,11 +250,15 @@ final class LoadGenerator {
     }
 
     static void writeMarkdown(Path path, List<Query> queries, List<Run> runs, Map<String, Boolean> sameAnswer,
-            double qps, int durationSec) throws IOException {
+            List<Double> qpsLevels, int durationSec) throws IOException {
         createParent(path);
+        boolean sweep = qpsLevels.size() > 1;
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(path))) {
-            out.printf(Locale.ROOT, "Each cell: %.0f QPS for %d s, open loop, latency measured client-side from the scheduled send time.%n%n",
-                    qps, durationSec);
+            String rates = qpsLevels.stream().map(q -> String.format(Locale.ROOT, "%.0f", q))
+                    .reduce((a, b) -> a + ", " + b).orElse("");
+            out.printf(Locale.ROOT, "Each row: %s QPS for %d s after a warm-up, open loop, latency measured client-side"
+                    + " from the scheduled send time. Errors include requests dropped at the in-flight cap.%n%n",
+                    rates, durationSec);
             for (Query q : queries) {
                 out.printf("**%s**: %s Same answer on every table: %s.%n%n", q.id(), q.description(),
                         sameAnswer.get(q.id()) ? "yes" : "NO");
@@ -249,14 +266,16 @@ final class LoadGenerator {
                 out.println(q.sqlFor("<table>"));
                 out.println("```");
                 out.println();
-                out.println("| Table | p50 ms | p95 ms | p99 ms | Broker time p50 ms | Docs scanned | Filter entries scanned | Errors |");
-                out.println("|---|---:|---:|---:|---:|---:|---:|---:|");
+                out.println((sweep ? "| QPS " : "")
+                        + "| Table | p50 ms | p95 ms | p99 ms | Broker time p50 ms | Docs scanned | Filter entries scanned | Errors |");
+                out.println((sweep ? "|---:" : "") + "|---|---:|---:|---:|---:|---:|---:|---:|");
                 for (Run r : runs) {
                     if (!r.queryId().equals(q.id())) {
                         continue;
                     }
                     LatencyStats.Summary c = r.client();
-                    out.println(String.format(Locale.ROOT, "| %s | %.2f | %.2f | %.2f | %d | %,d | %,d | %d |",
+                    out.println(String.format(Locale.ROOT, "%s| %s | %.2f | %.2f | %.2f | %d | %,d | %,d | %d |",
+                            sweep ? String.format(Locale.ROOT, "| %.0f ", r.qps()) : "",
                             r.table(), c.p50Ms(), c.p95Ms(), c.p99Ms(), r.brokerTimeP50Ms(),
                             r.docsScannedMedian(), r.entriesInFilterMedian(), r.errors() + r.dropped()));
                 }

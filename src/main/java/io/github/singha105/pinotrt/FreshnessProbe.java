@@ -119,10 +119,10 @@ final class FreshnessProbe {
                     }
                 }));
             }
-            if (round.isEmpty()) {
+            CompletableFuture.allOf(round.toArray(new CompletableFuture[0])).join();
+            if (Arrays.stream(seen).allMatch(v -> v >= 0)) {
                 break;
             }
-            CompletableFuture.allOf(round.toArray(new CompletableFuture[0])).join();
             Thread.sleep(pollMs);
         }
         return seen;
