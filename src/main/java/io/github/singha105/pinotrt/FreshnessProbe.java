@@ -119,7 +119,7 @@ final class FreshnessProbe {
                     }
                 }));
             }
-            CompletableFuture.allOf(round.toArray(new CompletableFuture[0])).join();
+            CompletableFuture.allOf(round.toArray(new CompletableFuture<?>[0])).join();
             if (Arrays.stream(seen).allMatch(v -> v >= 0)) {
                 break;
             }

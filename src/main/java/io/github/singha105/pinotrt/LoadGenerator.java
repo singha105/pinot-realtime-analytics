@@ -184,7 +184,7 @@ final class LoadGenerator {
                 return null;
             }));
         }
-        CompletableFuture.allOf(pending.toArray(new CompletableFuture[0])).join();
+        CompletableFuture.allOf(pending.toArray(new CompletableFuture<?>[0])).join();
         return new Samples(latency, results, dropped);
     }
 
