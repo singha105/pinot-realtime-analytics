@@ -1,0 +1,25 @@
+{
+  "schemaName": "__TABLE__",
+  "dimensionFieldSpecs": [
+    { "name": "delivery_id", "dataType": "STRING" },
+    { "name": "tenant_id", "dataType": "STRING" },
+    { "name": "endpoint_id", "dataType": "STRING" },
+    { "name": "event_type", "dataType": "STRING" },
+    { "name": "region", "dataType": "STRING" },
+    { "name": "status_class", "dataType": "STRING" },
+    { "name": "http_status", "dataType": "INT" },
+    { "name": "attempt", "dataType": "INT" }
+  ],
+  "metricFieldSpecs": [
+    { "name": "latency_ms", "dataType": "INT" },
+    { "name": "payload_bytes", "dataType": "LONG" }
+  ],
+  "dateTimeFieldSpecs": [
+    {
+      "name": "event_time",
+      "dataType": "LONG",
+      "format": "1:MILLISECONDS:EPOCH",
+      "granularity": "1:MILLISECONDS"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: ["17", "21"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - name: Build and unit-test
+        run: ./mvnw -B verify
+      - name: Validate Pinot configs and Compose file
+        run: |
+          for f in pinot/*.json pinot/tables/*.json; do python3 -m json.tool "$f" > /dev/null; done
+          docker compose config --quiet

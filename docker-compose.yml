@@ -1,0 +1,48 @@
+# Lean single-node stack for one laptop: one native-image Kafka broker (KRaft, no ZooKeeper) and one
+# Pinot JVM running ZooKeeper, controller, broker, server and minion together (QuickStart -type EMPTY).
+name: pinot-rt
+
+services:
+  kafka:
+    image: apache/kafka-native:4.2.2
+    container_name: pinot-rt-kafka
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  pinot:
+    image: apachepinot/pinot:1.5.0-21-ms-openjdk
+    container_name: pinot-rt-pinot
+    command: QuickStart -type EMPTY -dataDir /var/pinot
+    depends_on:
+      kafka:
+        condition: service_healthy
+    # Host ports are shifted by 10000: Homebrew php-fpm and other dev tools often hold 127.0.0.1:9000.
+    ports:
+      - "19000:9000"  # controller (REST API + UI)
+      - "18000:8000"  # broker (SQL endpoint)
+    environment:
+      # The image defaults to a fixed 4 GB heap, which does not fit a ~4 GB Docker VM.
+      JAVA_OPTS: "-Xms1g -Xmx2g -XX:+UseG1GC -Dpinot.admin.system.exit=false"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf localhost:9000/health && curl -sf localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 60

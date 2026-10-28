@@ -1,0 +1,53 @@
+{
+  "tableName": "deliveries_startree",
+  "tableType": "REALTIME",
+  "segmentsConfig": {
+    "timeColumnName": "event_time",
+    "replication": "1",
+    "retentionTimeUnit": "DAYS",
+    "retentionTimeValue": "7"
+  },
+  "tenants": {},
+  "tableIndexConfig": {
+    "loadMode": "MMAP",
+    "noDictionaryColumns": [
+      "delivery_id"
+    ],
+    "starTreeIndexConfigs": [
+      {
+        "dimensionsSplitOrder": [
+          "region",
+          "status_class",
+          "event_type",
+          "tenant_id"
+        ],
+        "skipStarNodeCreationForDimensions": [],
+        "functionColumnPairs": [
+          "COUNT__*",
+          "SUM__payload_bytes",
+          "MAX__latency_ms",
+          "AVG__latency_ms"
+        ],
+        "maxLeafRecords": 100
+      }
+    ]
+  },
+  "ingestionConfig": {
+    "streamIngestionConfig": {
+      "streamConfigMaps": [
+        {
+          "streamType": "kafka",
+          "stream.kafka.topic.name": "webhook-deliveries",
+          "stream.kafka.broker.list": "kafka:9092",
+          "stream.kafka.consumer.type": "lowlevel",
+          "stream.kafka.consumer.prop.auto.offset.reset": "smallest",
+          "stream.kafka.consumer.factory.class.name": "org.apache.pinot.plugin.stream.kafka30.KafkaConsumerFactory",
+          "stream.kafka.decoder.class.name": "org.apache.pinot.plugin.inputformat.json.JSONMessageDecoder",
+          "realtime.segment.flush.threshold.rows": "250000",
+          "realtime.segment.flush.threshold.time": "6h"
+        }
+      ]
+    }
+  },
+  "metadata": {}
+}
